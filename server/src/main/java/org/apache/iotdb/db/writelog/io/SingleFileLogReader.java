@@ -68,6 +68,7 @@ public class SingleFileLogReader implements ILogReader {
       }
 
       int logSize = logStream.readInt();
+//      System.out.println("LogSize: " + logSize);
       if (logSize <= 0) {
         return false;
       }
@@ -94,7 +95,7 @@ public class SingleFileLogReader implements ILogReader {
           "Cannot read more PhysicalPlans from {}, successfully read index is {}. The reason is",
           idx, filepath, e);
       fileCorrupted = true;
-      return false;
+      return true;
     }
     return true;
   }

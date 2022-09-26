@@ -49,6 +49,7 @@ public class BatchLogReader implements ILogReader{
   private List<PhysicalPlan> readLogs(ByteBuffer buffer) {
     List<PhysicalPlan> plans = new ArrayList<>();
     while (buffer.position() != buffer.limit()) {
+//      System.out.println("Position: " + buffer.position() + " / " + buffer.limit());
       try {
         plans.add(PhysicalPlan.Factory.create(buffer));
       } catch (IOException | IllegalPathException e) {

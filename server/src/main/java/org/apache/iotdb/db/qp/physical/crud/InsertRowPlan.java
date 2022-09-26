@@ -442,10 +442,24 @@ public class InsertRowPlan extends InsertPlan {
 
   @Override
   public void deserialize(ByteBuffer buffer) throws IllegalPathException {
-    this.time = buffer.getLong();
-    this.deviceId = new PartialPath(readString(buffer));
+    //try {
+    if(buffer==null){
+      try{
+        this.time = buffer.getLong();
+      }
+      catch (Exception e){
+        System.out.println("NUUUUULLL");
+      }
 
-    deserializeMeasurementsAndValues(buffer);
+    }
+      this.time = buffer.getLong();
+      this.deviceId = new PartialPath(readString(buffer));
+
+      deserializeMeasurementsAndValues(buffer);
+//    }
+//    catch (Exception e){
+//      logger.info("Fehler",e);
+//    }
   }
 
   void deserializeMeasurementsAndValues(ByteBuffer buffer) {

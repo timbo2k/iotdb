@@ -19,11 +19,16 @@
 
 package org.apache.iotdb.db.writelog.recover;
 
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
+
+import javafx.collections.transformation.SortedList;
 import org.apache.iotdb.db.conf.IoTDBConstant;
+import org.apache.iotdb.db.engine.fileSystem.SystemFileFactory;
 import org.apache.iotdb.db.engine.memtable.IMemTable;
 import org.apache.iotdb.db.engine.modification.Deletion;
 import org.apache.iotdb.db.engine.modification.ModificationFile;
@@ -44,8 +49,10 @@ import org.apache.iotdb.db.qp.physical.crud.InsertTabletPlan;
 import org.apache.iotdb.db.qp.physical.crud.UpdatePlan;
 import org.apache.iotdb.db.service.IoTDB;
 import org.apache.iotdb.db.writelog.io.ILogReader;
+import org.apache.iotdb.db.writelog.io.MultiFileLogReader;
 import org.apache.iotdb.db.writelog.manager.MultiFileLogNodeManager;
 import org.apache.iotdb.db.writelog.node.WriteLogNode;
+import org.apache.iotdb.tsfile.file.metadata.enums.TSDataType;
 import org.apache.iotdb.tsfile.fileSystem.FSFactoryProducer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,7 +81,8 @@ public class LogReplayer {
       VersionController versionController, TsFileResource currentTsFileResource,
       IMemTable memTable, boolean sequence) {
     this.logNodePrefix = logNodePrefix;
-    this.insertFilePath = insertFilePath;
+    this.insertFilePath = "/Users/timbo/var/opt/bznea/docker/iotdb/data/wal/root.bznea-1663790326623-14-0.tsfile";
+    //this.insertFilePath = "/Users/timbo/var/opt/bznea/docker/iotdb/data/wal/root.bznea-1664123421176-16-0.tsfile";
     this.modFile = modFile;
     this.versionController = versionController;
     this.currentTsFileResource = currentTsFileResource;
@@ -87,39 +95,67 @@ public class LogReplayer {
    * the logNode and redoes them into a given MemTable and ModificationFile.
    */
   public void replayLogs() {
-    WriteLogNode logNode = MultiFileLogNodeManager.getInstance().getNode(
-        logNodePrefix + FSFactoryProducer.getFSFactory().getFile(insertFilePath).getName());
-
-    ILogReader logReader = logNode.getLogReader();
+    Map<String,Map<Long,Map<String,WalHelper>>> allData = new HashMap<>();
+    File[] logFiles = SystemFileFactory.INSTANCE.getFile(this.insertFilePath).listFiles();
+    Arrays.sort(logFiles,
+            Comparator.comparingInt(f -> Integer.parseInt(f.getName().replace("wal", ""))));
+    ILogReader logReader = new MultiFileLogReader(logFiles);
+    long itemCounter = 0;
     try {
       while (logReader.hasNext()) {
         try {
           PhysicalPlan plan = logReader.next();
           if (plan instanceof InsertPlan) {
-            replayInsert((InsertPlan) plan);
+            if (plan instanceof InsertRowPlan) {
+              String device = ((InsertPlan) plan).getDeviceId().getDevice();
+              String[] measurements = ((InsertPlan) plan).getMeasurements();
+              TSDataType[] dataTypes = ((InsertPlan) plan).getDataTypes();
+              long timestamp = ((InsertRowPlan) plan).getTime();
+              Object[] values = ((InsertRowPlan) plan).getValues();
+              if(!allData.containsKey(device)){
+                allData.put(device,new HashMap<>());
+              }
+              if(!allData.get(device).containsKey(timestamp)){
+                allData.get(device).put(timestamp, new HashMap<>());
+              }
+
+
+//              if(itemCounter>3200000){
+//                writeCsvs(allData,"/development/bznea/queries");
+//                return;
+//              }
+              //assume array has always only one position
+              allData.get(device).get(timestamp).put(measurements[0],new WalHelper(dataTypes[0],values[0]));
+
+//              System.out.println("====================");
+//              System.out.println("Device: " + device);
+//              System.out.println("Timestamp: " + timestamp);
+//              System.out.println("Measurements: " + Arrays.toString(measurements));
+//              System.out.println("DataTypes: " + Arrays.toString(dataTypes));
+//              System.out.println("Values: " + Arrays.toString(values));
+              System.out.println("ItemCounter: " + itemCounter);
+              itemCounter ++;
+            } else {
+              System.out.println("bäh");
+            }
+//            replayInsert((InsertPlan) plan);
           } else if (plan instanceof DeletePlan) {
-            replayDelete((DeletePlan) plan);
+//            replayDelete((DeletePlan) plan);
+            System.out.println("Aha");
           } else if (plan instanceof UpdatePlan) {
-            replayUpdate((UpdatePlan) plan);
+//            replayUpdate((UpdatePlan) plan);
+            System.out.println("Ehe");
           }
-        } catch (PathNotExistException ignored) {
-          // can not get path because it is deleted
         } catch (Exception e) {
-          logger.warn("recover wal of {} failed", insertFilePath, e);
+          logger.error("recover wal of {} failed", insertFilePath, e);
         }
       }
     } catch (IOException e) {
-      logger.warn("meet error when redo wal of {}", insertFilePath, e);
+      logger.error("meet error when redo wal of {}", insertFilePath, e);
     } finally {
       logReader.close();
-      try {
-        modFile.close();
-      } catch (IOException e) {
-        logger.error("Cannot close the modifications file {}", modFile.getFilePath(), e);
-      }
+      writeCsvs(allData,"/development/bznea/queries");
     }
-    tempStartTimeMap.forEach((k, v) -> currentTsFileResource.updateStartTime(k, v));
-    tempEndTimeMap.forEach((k, v) -> currentTsFileResource.updateEndTime(k, v));
   }
 
   private void replayDelete(DeletePlan deletePlan) throws IOException, MetadataException {
@@ -197,6 +233,151 @@ public class LogReplayer {
             new DataTypeMismatchException(mNodes[i].getName(), tPlan.getDataTypes()[i],
                 mNodes[i].getSchema().getType()));
       }
+    }
+  }
+
+  public class WalHelper{
+    private TSDataType type;
+    private Object value;
+
+    public WalHelper(TSDataType type, Object value) {
+      this.type = type;
+      this.value = value;
+    }
+
+    public TSDataType getType() {
+      return type;
+    }
+
+    public Object getValue() {
+      return value;
+    }
+
+    @Override
+    public String toString() {
+      return "WalHelper{" +
+              "type='" + type + '\'' +
+              ", value=" + value +
+              '}';
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      WalHelper walHelper = (WalHelper) o;
+      return Objects.equals(type, walHelper.type) && Objects.equals(value, walHelper.value);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(type, value);
+    }
+  }
+
+  public void writeCsvs(Map<String,Map<Long,Map<String,WalHelper>>> allData, String folder){
+    for(Map.Entry<String,Map<Long,Map<String,WalHelper>>> mainEntry: allData.entrySet()){
+      String file = String.format("%s/%s.txt",folder,mainEntry.getKey());
+      Set<Long> timestampSet = new LinkedHashSet<>();
+      for(Map.Entry<Long,Map<String,WalHelper>> subEntry: mainEntry.getValue().entrySet()){
+
+        timestampSet.add(subEntry.getKey());
+
+//        for(Map.Entry<String,WalHelper> subsubEntry: subEntry.getValue().entrySet()){
+//          columnSet.add(subsubEntry.getKey());
+//
+//        }
+      }
+      List<Long> tsList = new ArrayList<>(timestampSet);
+      List<Long> sortedTs = tsList.stream().sorted().collect(Collectors.toList());
+
+
+
+      List<String> queries = new ArrayList<>();
+      int tsCounter = 0;
+      int itemCounter = 0;
+      for(Long ts: sortedTs){
+        tsCounter++;
+        List<String> cols = new ArrayList<>();
+        List<WalHelper> walHelperList = new ArrayList<>();
+        System.out.println("ts: " + tsCounter + " / " + sortedTs.size() + ", items: " + itemCounter);
+        for(Map.Entry<String,WalHelper> subEntry: mainEntry.getValue().get(ts).entrySet()){
+          cols.add(subEntry.getKey());
+          walHelperList.add(subEntry.getValue());
+        }
+        String query = String.format("INSERT into %s.default(time",mainEntry.getKey());
+        for(String col:cols){
+          itemCounter++;
+//          if(first) {
+//            query = String.format("%s`%s`",query,col);
+//            first=false;
+//          }
+//          else{
+            query = String.format("%s,`%s`",query,col);
+//          }
+        }
+        query = String.format("%s) VALUES(%s",query,ts);
+        String val;
+        for(WalHelper helper:walHelperList){
+
+
+          switch (helper.getType()) {
+            case DOUBLE:
+              val = String.format("%6.3f", (double) helper.getValue());
+              break;
+            case FLOAT:
+              val = String.format("%6.3f", (float) helper.getValue());
+              break;
+            case BOOLEAN:
+              val = "true";
+              if (!(boolean) helper.getValue()) {
+                val = "false";
+              }
+              break;
+            case TEXT:
+              val = String.format("'%s'", helper.getValue());
+              break;
+            case INT32:
+              val = String.format("%d", (int) helper.getValue());
+              break;
+            case INT64:
+              val = String.format("%d", (long) helper.getValue());
+              break;
+            default:
+              logger.warn("Could not find the given type assume as empty");
+              val = "";
+          }
+
+//          if(first) {
+//            query = String.format("%s%s",query,val);
+//            first=false;
+//          }
+//          else{
+          query = String.format("%s,%s",query,val);
+
+
+        }
+        query = String.format("%s)",query);
+//        System.out.println("query: " + query);
+        queries.add(query);
+      }
+      BufferedWriter writer = null;
+      try {
+        writer = new BufferedWriter(new FileWriter(file));
+        for(String line:queries){
+          writer.write(String.format("%s\n",line));
+        }
+
+        writer.close();
+      } catch (IOException e) {
+        logger.warn("Could not write to file",e);
+      }
+
+
+
+
+
+
     }
   }
 }
