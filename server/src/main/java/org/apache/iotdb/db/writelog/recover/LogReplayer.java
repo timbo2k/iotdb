@@ -81,8 +81,8 @@ public class LogReplayer {
       VersionController versionController, TsFileResource currentTsFileResource,
       IMemTable memTable, boolean sequence) {
     this.logNodePrefix = logNodePrefix;
-    this.insertFilePath = "/Users/timbo/var/opt/bznea/docker/iotdb/data/wal/root.bznea-1663790326623-14-0.tsfile";
-    //this.insertFilePath = "/Users/timbo/var/opt/bznea/docker/iotdb/data/wal/root.bznea-1664123421176-16-0.tsfile";
+//    this.insertFilePath = "/Users/timbo/var/opt/bznea/docker/iotdb/data/wal/root.bznea-1663790326623-14-0.tsfile";
+    this.insertFilePath = "/Users/timbo/var/opt/bznea/docker/iotdb/data/wal/root.bznea-1664123421176-16-0.tsfile";
     this.modFile = modFile;
     this.versionController = versionController;
     this.currentTsFileResource = currentTsFileResource;
@@ -107,25 +107,28 @@ public class LogReplayer {
           PhysicalPlan plan = logReader.next();
           if (plan instanceof InsertPlan) {
             if (plan instanceof InsertRowPlan) {
-              String device = ((InsertPlan) plan).getDeviceId().getDevice();
-              String[] measurements = ((InsertPlan) plan).getMeasurements();
-              TSDataType[] dataTypes = ((InsertPlan) plan).getDataTypes();
-              long timestamp = ((InsertRowPlan) plan).getTime();
-              Object[] values = ((InsertRowPlan) plan).getValues();
-              if(!allData.containsKey(device)){
-                allData.put(device,new HashMap<>());
-              }
-              if(!allData.get(device).containsKey(timestamp)){
-                allData.get(device).put(timestamp, new HashMap<>());
+              if(itemCounter>4000000) {
+                String device = ((InsertPlan) plan).getDeviceId().getDevice();
+                String[] measurements = ((InsertPlan) plan).getMeasurements();
+                TSDataType[] dataTypes = ((InsertPlan) plan).getDataTypes();
+                long timestamp = ((InsertRowPlan) plan).getTime();
+                Object[] values = ((InsertRowPlan) plan).getValues();
+                if (!allData.containsKey(device)) {
+                  allData.put(device, new HashMap<>());
+                }
+                if (!allData.get(device).containsKey(timestamp)) {
+                  allData.get(device).put(timestamp, new HashMap<>());
+                }
+                allData.get(device).get(timestamp).put(measurements[0],new WalHelper(dataTypes[0],values[0]));
               }
 
 
-//              if(itemCounter>3200000){
+//              if(itemCounter>4000000){
 //                writeCsvs(allData,"/development/bznea/queries");
 //                return;
 //              }
               //assume array has always only one position
-              allData.get(device).get(timestamp).put(measurements[0],new WalHelper(dataTypes[0],values[0]));
+
 
 //              System.out.println("====================");
 //              System.out.println("Device: " + device);
